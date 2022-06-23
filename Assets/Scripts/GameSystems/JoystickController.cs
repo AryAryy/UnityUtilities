@@ -2,12 +2,16 @@ using System;
 using System.Collections;
 using UnityEngine;
 
-namespace UnityUtilitiesCode.GameSystems
+namespace Utilities.GameSystems
 {
     public class JoystickController : MonoBehaviour
     {
+        private static JoystickController instance_;
+        public static JoystickController Instance => instance_;
+
+        private Camera mainCam_;
         private Coroutine inputGetCo_;
-        private Vector3 inputDirection_;
+        private Vector2 inputDirection_;
         private bool gameStarted_;
         
         /// <summary>
@@ -16,7 +20,9 @@ namespace UnityUtilitiesCode.GameSystems
         /// </summary>
         private float remappedInput_;
         private bool isTouching_;
-        
+        private bool active_;
+
+        [SerializeField] private bool fixedPosition;
         [SerializeField] private Camera joystickCamera;
         [SerializeField, Tooltip("Joystick object")]
         private Transform joystick;
@@ -25,35 +31,52 @@ namespace UnityUtilitiesCode.GameSystems
         [SerializeField, Tooltip("Joystick's distance from joystick camera")]
         private float joystickDistanceFromCam;
 
+        [SerializeField] private float minDistanceToRegisterInput;
         // Both below variables work based on magnitude value of 'inputDirection_'
         [SerializeField, Tooltip("Minimum amount of input needed to register input")]
         private float deadzone;
         [SerializeField, Tooltip("Maximum amount of input needed for maximum input register")]
         private float maxInputVectorLength;
+        [SerializeField] private LayerMask itemsLayer;
 
-        public Vector3 InputVector => inputDirection_.normalized * remappedInput_;
+        public Vector2 RawInputVector => inputDirection_.normalized;
+        public Vector2 InputVector => inputDirection_.normalized * remappedInput_;
 
-        public event Action OnGrabArrow;
-        public event Action OnReleaseArrow;
+        public event Action OnTouchStart;
+        public event Action OnTouchEnd;
 
-        //private void Start() => LevelManager.Instance.OnStartGame += StartGame;
+        private void Awake()
+        {
+            instance_ = this;
+            mainCam_ = Camera.main;
+            joystickMovingObject.gameObject.SetActive(false);
+            //active_ = true;
+        }
 
-        private void StartGame() => gameStarted_ = true;
+        /// <summary>
+        /// This function activates joystick
+        /// </summary>
+        private void ActivateJoystick() => ToggleActivationStatus(true);
+
+        /// <summary>
+        /// This function deactivates joystick
+        /// </summary>
+        private void DeactivateJoystick() => ToggleActivationStatus(false);
         
         private void Update()
         {
-            if (!gameStarted_) return;
+            if (!gameStarted_ || !active_) return;
             
             if (Input.GetMouseButtonDown(0))
             {
-                OnGrabArrow?.Invoke();
                 isTouching_ = true;
+                if (inputGetCo_ != null) StopCoroutine(inputGetCo_);
                 inputGetCo_ = StartCoroutine(GetInputRoutine());
             }
 
             if (Input.GetMouseButtonUp(0))
             {
-                OnReleaseArrow?.Invoke();
+                OnTouchEnd?.Invoke();
                 isTouching_ = false;
             }
         }
@@ -66,7 +89,15 @@ namespace UnityUtilitiesCode.GameSystems
         /// <returns></returns>
         private IEnumerator GetInputRoutine()
         {
-            SetJoystickStartPosition(GetMousePosition());
+            if (!fixedPosition) SetJoystickStartPosition(GetMousePosition());
+            float distance = Vector3.Distance(GetMousePosition(), joystick.position);
+            if (distance > minDistanceToRegisterInput)
+            {
+                isTouching_ = false;
+                yield break;
+            }
+
+            OnTouchStart?.Invoke();
             while (isTouching_)
             {
                 MoveJoystick(GetMousePosition());
@@ -84,7 +115,7 @@ namespace UnityUtilitiesCode.GameSystems
             }
 
             remappedInput_ = 0;
-            inputDirection_ = Vector3.zero;
+            inputDirection_ = Vector2.zero;
             inputGetCo_ = null;
         }
 
@@ -110,5 +141,17 @@ namespace UnityUtilitiesCode.GameSystems
         /// </summary>
         /// <param name="pos"> Target position </param>
         private void MoveJoystick(Vector3 pos) => joystickMovingObject.position = pos;
+
+        /// <summary>
+        /// This function activates/deactivated joystick
+        /// </summary>
+        /// <param name="status"> Activation status </param>
+        private void ToggleActivationStatus(bool status)
+        {
+            active_ = status;
+            isTouching_ = status;
+            joystickMovingObject.gameObject.SetActive(status);
+            OnTouchEnd?.Invoke();
+        }
     }
 }
